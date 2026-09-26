@@ -623,10 +623,11 @@ Create `.opencode-skillful.json` in your project root or global config directory
   - When enabled, `skill_find` responses include discovered, parsed, rejected, and error counts
   - Useful for diagnosing skill loading and parsing issues
 
-- **basePaths** (array, default: standard locations): Custom skill search directories
+- **basePaths** (array, default: standard global locations): Additional skill search directories
   - Paths are searched in priority order; later paths override earlier ones for duplicate skill names
-  - Default: `[~/.config/opencode/skills, .opencode/skills]`
-  - Use project-local `.opencode/skills/` for project-specific skills
+  - Global discovery includes `~/.agent/skills`, `~/.claude/skills`, `~/.agents/skills`, and OpenCode config skill directories
+  - Every ancestor from the filesystem root to the project is searched for `.agent/skills`, `.claude/skills`, `.agents/skills`, then `.opencode/skills`
+  - Project roots override global and configured roots; nearer ancestors override outer ancestors
   - Platform-aware paths: automatically resolves to XDG, macOS, or Windows standard locations
 
 - **promptRenderer** (string, default: `'xml'`): Default format for prompt injection

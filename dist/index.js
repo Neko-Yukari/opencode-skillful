@@ -17719,6 +17719,10 @@ async function createSkillRegistry(config2, logger) {
           logger.debug("[SkillRegistryController] error [NOSKILLERROR]", path, "=> NO SKILL");
           continue;
         }
+        const replacedSkill = controller.get(skill.toolName);
+        if (replacedSkill) {
+          logger.warn(`[SkillRegistryController] Duplicate skill toolName "${skill.toolName}": replacing ${replacedSkill.path} with ${skill.path}`);
+        }
         controller.set(skill.toolName, skill);
         summary.parsed++;
       } catch (error45) {
@@ -22978,7 +22982,7 @@ var defaultGeneratedDir3 = resolve7(process12.cwd(), "src/generated");
 
 // src/config.ts
 import { homedir as homedir3 } from "os";
-import { isAbsolute as isAbsolute2, join as join4, normalize, resolve as resolve8 } from "path";
+import { dirname as dirname6, isAbsolute as isAbsolute2, join as join4, normalize, resolve as resolve8 } from "path";
 function getOpenCodeConfigPaths() {
   const home = homedir3();
   const paths = [];
@@ -22997,6 +23001,33 @@ function getOpenCodeConfigPaths() {
   }
   paths.push(join4(home, ".opencode"));
   return paths;
+}
+function getGlobalSkillBasePaths() {
+  const home = homedir3();
+  return [
+    join4(home, ".agent", "skills"),
+    join4(home, ".claude", "skills"),
+    join4(home, ".agents", "skills"),
+    ...getOpenCodeConfigPaths().map((configPath) => join4(configPath, "skills"))
+  ];
+}
+function getProjectSkillBasePaths(projectDirectory) {
+  const ancestors = [];
+  let currentDirectory = resolve8(projectDirectory);
+  while (true) {
+    ancestors.unshift(currentDirectory);
+    const parentDirectory = dirname6(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      break;
+    }
+    currentDirectory = parentDirectory;
+  }
+  return ancestors.flatMap((ancestor) => [
+    join4(ancestor, ".agent", "skills"),
+    join4(ancestor, ".claude", "skills"),
+    join4(ancestor, ".agents", "skills"),
+    join4(ancestor, ".opencode", "skills")
+  ]);
 }
 function expandTildePath(path3) {
   if (path3 === "~") {
@@ -23028,7 +23059,11 @@ function resolveBasePath(basePath, projectDirectory) {
 function normalizeBasePaths(basePaths, projectDirectory) {
   const uniquePaths = new Set;
   const normalizedPaths = [];
-  for (const basePath of basePaths) {
+  for (let index = basePaths.length - 1;index >= 0; index--) {
+    const basePath = basePaths[index];
+    if (basePath === undefined) {
+      continue;
+    }
     const normalizedPath = resolveBasePath(basePath, projectDirectory);
     if (!normalizedPath) {
       continue;
@@ -23038,11 +23073,11 @@ function normalizeBasePaths(basePaths, projectDirectory) {
       continue;
     }
     uniquePaths.add(key);
-    normalizedPaths.push(normalizedPath);
+    normalizedPaths.unshift(normalizedPath);
   }
   return normalizedPaths;
 }
-var defaultSkillBasePaths = getOpenCodeConfigPaths().map((configPath) => join4(configPath, "skills"));
+var defaultSkillBasePaths = getGlobalSkillBasePaths();
 var options2 = {
   name: "opencode-skillful",
   cwd: "./",
@@ -23056,8 +23091,9 @@ var options2 = {
 async function getPluginConfig(ctx) {
   const resolvedConfig = await loadConfig5(options2);
   const configuredBasePaths = [
+    ...getGlobalSkillBasePaths(),
     ...resolvedConfig.basePaths,
-    join4(ctx.directory, ".opencode", "skills")
+    ...getProjectSkillBasePaths(ctx.directory)
   ];
   resolvedConfig.basePaths = normalizeBasePaths(configuredBasePaths, ctx.directory);
   return resolvedConfig;

@@ -4,7 +4,7 @@
  * Implements Anthropic's Agent Skills Specification (v1.0) for OpenCode.
  *
  * Features:
- * - Discovers SKILL.md files from .opencode/skills/, ~/.opencode/skills/, and ~/.config/opencode/skills/
+ * - Discovers SKILL.md files from global and project-ancestor agent skill directories
  * - Validates skills against Anthropic's spec (YAML frontmatter + Markdown)
  * - Provides unified skill discovery and loading via two main tools:
  *   - use_skills(): Load one or more skills by name

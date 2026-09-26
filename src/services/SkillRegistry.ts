@@ -282,7 +282,14 @@ export async function createSkillRegistry(
           continue;
         }
 
-        // Register skill (or overwrite if same path)
+        const replacedSkill = controller.get(skill.toolName);
+        if (replacedSkill) {
+          logger.warn(
+            `[SkillRegistryController] Duplicate skill toolName "${skill.toolName}": replacing ${replacedSkill.path} with ${skill.path}`
+          );
+        }
+
+        // Register skill (last path wins)
         controller.set(skill.toolName, skill);
         summary.parsed++;
       } catch (error) {

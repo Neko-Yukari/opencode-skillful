@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { stripTrailingPathSeparators, suggestSkillsDirectoryPath } from './SkillRegistry';
+import type { PluginLogger } from '../types';
+import {
+  createSkillRegistry,
+  stripTrailingPathSeparators,
+  suggestSkillsDirectoryPath,
+} from './SkillRegistry';
 
 describe('stripTrailingPathSeparators', () => {
   it('removes trailing forward slashes', () => {
@@ -41,5 +46,35 @@ describe('suggestSkillsDirectoryPath', () => {
 
   it('returns null for empty path', () => {
     expect(suggestSkillsDirectoryPath('')).toBeNull();
+  });
+});
+
+describe('duplicate skill registration', () => {
+  it('warns with both paths and keeps the last skill', async () => {
+    const warnings: unknown[][] = [];
+    const logger: PluginLogger = {
+      debug: () => {},
+      error: () => {},
+      log: () => {},
+      warn: (...message) => warnings.push(message),
+    };
+    const registry = await createSkillRegistry(
+      {
+        basePaths: ['/skills'],
+        debug: false,
+        promptRenderer: 'xml',
+        modelRenderers: {},
+      },
+      logger
+    );
+    const firstPath = '/skills/duplicate-skill/SKILL.md';
+    const secondPath = '/skills/duplicate_skill/SKILL.md';
+
+    await registry.register(firstPath, secondPath);
+
+    expect(registry.controller.get('duplicate_skill')?.path).toBe(secondPath);
+    expect(warnings).toHaveLength(1);
+    expect(String(warnings[0]?.[0])).toContain(firstPath);
+    expect(String(warnings[0]?.[0])).toContain(secondPath);
   });
 });

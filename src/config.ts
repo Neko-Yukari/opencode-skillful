@@ -2,19 +2,20 @@
  * Plugin Configuration - Skill Discovery and Prompt Rendering
  *
  * WHY: Skills can be stored in multiple places:
- * 1. User-global: ~/.config/opencode/skills/ (or platform equivalent)
- * 2. User-global (alt): ~/.opencode/skills/
- * 3. Project-local: ./project/.opencode/skills/
+ * 1. User-global: standard agent and OpenCode skill directories
+ * 2. Explicitly configured base paths
+ * 3. Project ancestors: agent and OpenCode skill directories
  *
  * This module resolves paths with proper priority so:
  * - Users can install global skills once, reuse across projects
  * - Projects can override/add skills locally without affecting other projects
  *
  * PATH PRIORITY (last wins):
- * 1. XDG config path: $XDG_CONFIG_HOME/opencode/skills/ (lowest)
- * 2. Home config path: ~/.config/opencode/skills/
- * 3. Home dotfile path: ~/.opencode/skills/
- * 4. Project-local path: ./.opencode/skills/ (highest)
+ * 1. Global paths (lowest)
+ * 2. Explicitly configured base paths
+ * 3. Project-ancestor paths, root to project (highest)
+ *
+ * Within each global/project scope, .agent < .claude < .agents < .opencode.
  *
  * WINDOWS PATHS (matching OpenCode's conventions):
  * - $XDG_CONFIG_HOME/opencode/skills/ (if XDG set)
@@ -34,7 +35,7 @@ import { loadConfig } from 'bunfig';
 
 import type { PluginInput } from '@opencode-ai/plugin';
 import { homedir } from 'node:os';
-import { isAbsolute, join, normalize, resolve } from 'node:path';
+import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
 import type { PluginConfig } from './types';
 
 /**
@@ -74,6 +75,40 @@ export function getOpenCodeConfigPaths(): string[] {
   paths.push(join(home, '.opencode'));
 
   return paths;
+}
+
+/** Returns global skill roots in priority order (lowest to highest). */
+export function getGlobalSkillBasePaths(): string[] {
+  const home = homedir();
+
+  return [
+    join(home, '.agent', 'skills'),
+    join(home, '.claude', 'skills'),
+    join(home, '.agents', 'skills'),
+    ...getOpenCodeConfigPaths().map((configPath) => join(configPath, 'skills')),
+  ];
+}
+
+/** Returns project-ancestor skill roots in priority order (lowest to highest). */
+export function getProjectSkillBasePaths(projectDirectory: string): string[] {
+  const ancestors: string[] = [];
+  let currentDirectory = resolve(projectDirectory);
+
+  while (true) {
+    ancestors.unshift(currentDirectory);
+    const parentDirectory = dirname(currentDirectory);
+    if (parentDirectory === currentDirectory) {
+      break;
+    }
+    currentDirectory = parentDirectory;
+  }
+
+  return ancestors.flatMap((ancestor) => [
+    join(ancestor, '.agent', 'skills'),
+    join(ancestor, '.claude', 'skills'),
+    join(ancestor, '.agents', 'skills'),
+    join(ancestor, '.opencode', 'skills'),
+  ]);
 }
 
 /**
@@ -137,13 +172,18 @@ export function resolveBasePath(basePath: string, projectDirectory: string): str
  * Normalize configured base paths:
  * - Resolve to absolute paths
  * - Remove empty entries
- * - Remove duplicates while preserving priority order
+ * - Remove duplicates while keeping their highest-priority occurrence
  */
 export function normalizeBasePaths(basePaths: string[], projectDirectory: string): string[] {
   const uniquePaths = new Set<string>();
   const normalizedPaths: string[] = [];
 
-  for (const basePath of basePaths) {
+  for (let index = basePaths.length - 1; index >= 0; index--) {
+    const basePath = basePaths[index];
+    if (basePath === undefined) {
+      continue;
+    }
+
     const normalizedPath = resolveBasePath(basePath, projectDirectory);
 
     if (!normalizedPath) {
@@ -156,7 +196,7 @@ export function normalizeBasePaths(basePaths: string[], projectDirectory: string
     }
 
     uniquePaths.add(key);
-    normalizedPaths.push(normalizedPath);
+    normalizedPaths.unshift(normalizedPath);
   }
 
   return normalizedPaths;
@@ -166,9 +206,7 @@ export function normalizeBasePaths(basePaths: string[], projectDirectory: string
  * Default skill base paths matching OpenCode's conventions.
  * Paths are in priority order (lowest to highest).
  */
-const defaultSkillBasePaths = getOpenCodeConfigPaths().map((configPath) =>
-  join(configPath, 'skills')
-);
+const defaultSkillBasePaths = getGlobalSkillBasePaths();
 
 const options: Config<PluginConfig> = {
   name: 'opencode-skillful',
@@ -185,8 +223,9 @@ export async function getPluginConfig(ctx: PluginInput) {
   const resolvedConfig = await loadConfig(options);
 
   const configuredBasePaths = [
+    ...getGlobalSkillBasePaths(),
     ...resolvedConfig.basePaths,
-    join(ctx.directory, '.opencode', 'skills'), // Highest priority: Project-local
+    ...getProjectSkillBasePaths(ctx.directory),
   ];
 
   resolvedConfig.basePaths = normalizeBasePaths(configuredBasePaths, ctx.directory);

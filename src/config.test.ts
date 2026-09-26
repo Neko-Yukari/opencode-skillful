@@ -1,9 +1,11 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse, resolve } from 'node:path';
 import {
   expandTildePath,
+  getGlobalSkillBasePaths,
   getOpenCodeConfigPaths,
+  getProjectSkillBasePaths,
   normalizeBasePaths,
   resolveBasePath,
 } from './config';
@@ -124,6 +126,19 @@ describe('normalizeBasePaths', () => {
     expect(result).toEqual(['/workspace/project/.opencode/skills']);
   });
 
+  it('keeps a duplicate at its highest-priority position', () => {
+    // Use a rooted fixture so relative and absolute forms resolve identically on every platform.
+    const rootedProject = join(parse(resolve('.')).root, 'workspace', 'project');
+    const projectSkills = join(rootedProject, '.opencode', 'skills');
+    const customSkills = join(rootedProject, 'custom-skills');
+    const result = normalizeBasePaths(
+      ['.opencode/skills', customSkills, projectSkills],
+      rootedProject
+    );
+
+    expect(result).toEqual([customSkills, projectSkills]);
+  });
+
   it('deduplicates Windows paths case-insensitively on Windows', () => {
     if (process.platform !== 'win32') {
       return;
@@ -133,6 +148,39 @@ describe('normalizeBasePaths', () => {
 
     expect(result).toHaveLength(1);
     expect(result[0]?.toLowerCase()).toBe('c:\\skills');
+  });
+});
+
+describe('skill root generation', () => {
+  it('orders global agent roots before OpenCode roots', () => {
+    const paths = getGlobalSkillBasePaths();
+
+    expect(paths.slice(0, 3)).toEqual([
+      join(homedir(), '.agent', 'skills'),
+      join(homedir(), '.claude', 'skills'),
+      join(homedir(), '.agents', 'skills'),
+    ]);
+    expect(paths.at(-1)).toBe(join(homedir(), '.opencode', 'skills'));
+  });
+
+  it('orders project roots from the filesystem root to the project', () => {
+    const filesystemRoot = parse(resolve('.')).root;
+    const projectDirectory = join(filesystemRoot, 'workspace', 'project');
+
+    expect(getProjectSkillBasePaths(projectDirectory)).toEqual([
+      join(filesystemRoot, '.agent', 'skills'),
+      join(filesystemRoot, '.claude', 'skills'),
+      join(filesystemRoot, '.agents', 'skills'),
+      join(filesystemRoot, '.opencode', 'skills'),
+      join(filesystemRoot, 'workspace', '.agent', 'skills'),
+      join(filesystemRoot, 'workspace', '.claude', 'skills'),
+      join(filesystemRoot, 'workspace', '.agents', 'skills'),
+      join(filesystemRoot, 'workspace', '.opencode', 'skills'),
+      join(filesystemRoot, 'workspace', 'project', '.agent', 'skills'),
+      join(filesystemRoot, 'workspace', 'project', '.claude', 'skills'),
+      join(filesystemRoot, 'workspace', 'project', '.agents', 'skills'),
+      join(filesystemRoot, 'workspace', 'project', '.opencode', 'skills'),
+    ]);
   });
 });
 

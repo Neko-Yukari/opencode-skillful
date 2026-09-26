@@ -16,6 +16,18 @@ This is a test skill.
       './test-skill/references/guide.md': '# Guide\nThis is a guide.',
       './test-skill/scripts/build.sh': '#!/bin/bash\necho "Building..."',
       './test-skill/assets/logo.svg': '<svg></svg>',
+      './duplicate-skill/SKILL.md': `---
+name: duplicate-skill
+description: First duplicate skill used to verify replacement behavior.
+---
+# First Duplicate
+`,
+      './duplicate_skill/SKILL.md': `---
+name: duplicate_skill
+description: Second duplicate skill used to verify replacement behavior.
+---
+# Second Duplicate
+`,
     },
     '/skills'
   );
