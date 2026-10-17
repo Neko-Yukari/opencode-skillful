@@ -173,5 +173,7 @@ export const SkillsPlugin: Plugin = async (ctx) => {
         },
       }),
     },
+    getSkillCandidates: api.getSkillCandidates,
+    reloadSkills: () => api.registry.reload(),
   };
 };

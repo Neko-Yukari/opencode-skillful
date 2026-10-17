@@ -157,80 +157,97 @@ export async function createSkillRegistry(
    * WHY NOT THROWN ERRORS: If one skill fails to parse, we log it and continue.
    * The plugin should remain usable even if 1 out of 100 skills is malformed.
    */
-  const initialise = async () => {
+  const resetDebug = () => {
+    debug.discovered = 0;
+    debug.parsed = 0;
+    debug.rejected = 0;
+    debug.errors = [];
+  };
+  const scanAndRegister = async () => {
+    resetDebug();
     controller.ready.setStatus('loading');
-
-    try {
-      // Find all SKILL.md files recursively
-      const paths: string[] = [];
-      const existingBasePaths = config.basePaths.filter(doesPathExist);
-
-      if (existingBasePaths.length === 0) {
-        logger.warn(
-          '[OpencodeSkillful] No valid base paths found for skill discovery:',
-          config.basePaths
-        );
-
-        const typoCandidates = config.basePaths.flatMap((basePath) => {
-          const suggestedPath = suggestSkillsDirectoryPath(basePath);
-
-          if (!suggestedPath) {
-            return [];
-          }
-
-          if (doesPathExist(suggestedPath)) {
-            return [`${basePath} -> ${suggestedPath}`];
-          }
-
+    const paths: string[] = [];
+    const existingBasePaths = config.basePaths.filter(doesPathExist);
+    if (existingBasePaths.length === 0) {
+      logger.warn(
+        '[OpencodeSkillful] No valid base paths found for skill discovery:',
+        config.basePaths
+      );
+      const typoCandidates = config.basePaths.flatMap((basePath) => {
+        const suggestedPath = suggestSkillsDirectoryPath(basePath);
+        if (!suggestedPath) {
           return [];
-        });
-
-        if (typoCandidates.length > 0) {
-          logger.warn(
-            '[OpencodeSkillful] Detected possible "skill" vs "skills" typo in basePaths:',
-            typoCandidates
-          );
         }
-
-        controller.ready.setStatus('ready');
-        return;
+        if (doesPathExist(suggestedPath)) {
+          return [`${basePath} -> ${suggestedPath}`];
+        }
+        return [];
+      });
+      if (typoCandidates.length > 0) {
+        logger.warn(
+          '[OpencodeSkillful] Detected possible "skill" vs "skills" typo in basePaths:',
+          typoCandidates
+        );
       }
-
+    } else {
       logger.debug(
         '[SkillRegistryController] Discovering skills in base paths:',
         existingBasePaths
       );
-
       for (const basePath of existingBasePaths) {
         const found = await findSkillPaths(basePath);
         paths.push(...found);
       }
-
       logger.debug('[SkillRegistryController] skills.discovered', paths.length);
       debug.discovered = paths.length;
-
       if (paths.length === 0) {
-        controller.ready.setStatus('ready');
         logger.debug('[SkillRegistryController] No skills found');
-        return;
+      } else {
+        const results = await register(...paths);
+        logger.debug('[SkillRegistryController] skills.initialise results', results);
+        debug.parsed = results.parsed;
+        debug.rejected = results.rejected;
+        debug.errors = results.errors;
       }
-
-      const results = await register(...paths);
-
-      logger.debug('[SkillRegistryController] skills.initialise results', results);
-
-      debug.parsed = results.parsed;
-      debug.rejected = results.rejected;
-      debug.errors = results.errors;
-
-      controller.ready.setStatus('ready');
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+    }
+    controller.ready.setStatus('ready');
+    return {
+      discovered: debug.discovered,
+      registered: debug.parsed,
+      rejected: debug.rejected,
+      total: controller.skills.length,
+      errors: debug.errors,
+    };
+  };
+  const initialise = async () => {
+    try {
+      await scanAndRegister();
+    } catch (error45) {
+      const errorMessage = error45 instanceof Error ? error45.message : String(error45);
       logger.error('[SkillRegistryController] Initialization failed:', errorMessage);
       controller.ready.setStatus('error');
     }
   };
-
+  let reloadInFlight: ReturnType<typeof scanAndRegister> | null = null;
+  const reload = () => {
+    if (reloadInFlight) {
+      return reloadInFlight;
+    }
+    reloadInFlight = (async () => {
+      controller.clear();
+      try {
+        return await scanAndRegister();
+      } catch (error45) {
+        const errorMessage = error45 instanceof Error ? error45.message : String(error45);
+        logger.error('[SkillRegistryController] Reload failed:', errorMessage);
+        controller.ready.setStatus('error');
+        throw error45;
+      }
+    })().finally(() => {
+      reloadInFlight = null;
+    });
+    return reloadInFlight;
+  };
   const matchBasePath = (absolutePath: string): string | null => {
     for (const basePath of config.basePaths) {
       if (absolutePath.startsWith(basePath)) {
@@ -326,6 +343,7 @@ export async function createSkillRegistry(
     config,
     controller,
     initialise,
+    reload,
     register,
     isSkillPath,
     getToolnameFromSkillPath,

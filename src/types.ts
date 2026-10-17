@@ -177,6 +177,17 @@ export type PluginLogger = Record<LogType, (...message: unknown[]) => void>;
  */
 export type SkillSearcher = (_query: string | string[]) => SkillSearchResult;
 
+/** Metadata-only candidates for intent selection. Pass the selected id to skill_use. */
+export type SkillCandidate = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type SkillCandidateSnapshot = {
+  skills: SkillCandidate[];
+};
+
 /**
  * Skill registry controller interface
  */
@@ -200,6 +211,7 @@ export type SkillRegistryDebugInfo = {
 
 export type SkillRegistry = {
   initialise: () => Promise<void>;
+  reload: () => Promise<unknown>;
   config: PluginConfig;
   register: (...skillPaths: string[]) => Promise<SkillRegistryDebugInfo>;
   controller: SkillRegistryController;

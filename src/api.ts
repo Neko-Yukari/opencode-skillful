@@ -37,6 +37,7 @@
 
 import { createLogger } from './services/logger';
 import { createSkillRegistry } from './services/SkillRegistry';
+import { createSkillCandidateSnapshot } from './services/SkillCandidates.ts';
 import { createSkillFinder } from './tools/SkillFinder';
 import { createSkillResourceReader } from './tools/SkillResourceReader';
 import { createSkillLoader } from './tools/SkillUser';
@@ -50,6 +51,7 @@ export const createApi = async (config: PluginConfig) => {
     registry,
     logger,
     config,
+    getSkillCandidates: createSkillCandidateSnapshot(registry),
     findSkills: createSkillFinder(registry),
     readResource: createSkillResourceReader(registry),
     loadSkill: createSkillLoader(registry),

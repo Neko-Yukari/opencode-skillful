@@ -30,13 +30,13 @@ export const listSkillFiles = (skillPath: string, subdirectory: string): string[
   // using cwd in the skillPath, because we should have already
   // confirmed it exists.
   const glob = new Bun.Glob(join(subdirectory, '**', '*'));
-  return Array.from(glob.scanSync({ cwd: skillPath, absolute: true }));
+  return Array.from(glob.scanSync({ cwd: skillPath, absolute: true, followSymlinks: true }));
 };
 
 export const findSkillPaths = async (basePath: string): Promise<string[]> => {
   const glob = new Bun.Glob('**/SKILL.md');
   const results: string[] = [];
-  for await (const path of glob.scan({ cwd: basePath, absolute: true })) {
+  for await (const path of glob.scan({ cwd: basePath, absolute: true, followSymlinks: true })) {
     results.push(path);
   }
   return results;

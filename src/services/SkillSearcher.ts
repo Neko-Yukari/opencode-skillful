@@ -171,6 +171,25 @@ export function generateFeedback(query: ParsedSkillQuery, matchCount: number): s
  * - Multiple search terms (AND logic)
  */
 
+function fuzzyWordMatch(term: string, word: string): boolean {
+  if (!/^[a-z0-9]{4,}$/.test(term)) return false;
+  const max = term.length >= 7 ? 2 : 1;
+  if (Math.abs(term.length - word.length) > max) return false;
+  let previous = Array.from({ length: word.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= term.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= word.length; j++) {
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + (term[i - 1] === word[j - 1] ? 0 : 1)
+      );
+    }
+    previous = current;
+  }
+  return previous[word.length] <= max;
+}
+
 export function createSkillSearcher(registry: SkillRegistryController): SkillSearcher {
   function resolveQuery(queryString: string | string[]): SkillSearchResult {
     const query = parseQuery(queryString);
@@ -200,6 +219,22 @@ export function createSkillSearcher(registry: SkillRegistryController): SkillSea
       const haystack = `${skill.toolName} ${skill.name} ${skill.description}`.toLowerCase();
       return query.include.every((term) => haystack.includes(term));
     });
+
+    const wordsToFind = query.include.flatMap((term) => term.split(/[-_]/));
+    if (
+      results.length === 0 &&
+      wordsToFind.some((term) => /^[a-z0-9]{4,}$/.test(term)) &&
+      wordsToFind.every((term) => /^[a-z0-9]+$/.test(term))
+    ) {
+      results = skills.filter((skill) => {
+        const words = `${skill.toolName} ${skill.name} ${skill.description}`
+          .toLowerCase()
+          .match(/[a-z0-9]+/g) ?? [];
+        return wordsToFind.every((term) =>
+          words.some((word) => word.includes(term) || fuzzyWordMatch(term, word))
+        );
+      });
+    }
 
     output.matches = results;
     output.totalMatches = results.length;

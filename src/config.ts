@@ -220,7 +220,7 @@ const options: Config<PluginConfig> = {
 };
 
 export async function getPluginConfig(ctx: PluginInput) {
-  const resolvedConfig = await loadConfig(options);
+  const resolvedConfig = await loadConfig({ ...options, cwd: ctx.directory });
 
   const configuredBasePaths = [
     ...getGlobalSkillBasePaths(),

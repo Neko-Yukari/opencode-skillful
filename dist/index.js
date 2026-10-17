@@ -17425,12 +17425,12 @@ var readSkillFile = async (path) => {
 };
 var listSkillFiles = (skillPath, subdirectory) => {
   const glob = new Bun.Glob(join(subdirectory, "**", "*"));
-  return Array.from(glob.scanSync({ cwd: skillPath, absolute: true }));
+  return Array.from(glob.scanSync({ cwd: skillPath, absolute: true, followSymlinks: true }));
 };
 var findSkillPaths = async (basePath) => {
   const glob = new Bun.Glob("**/SKILL.md");
   const results = [];
-  for await (const path of glob.scan({ cwd: basePath, absolute: true })) {
+  for await (const path of glob.scan({ cwd: basePath, absolute: true, followSymlinks: true })) {
     results.push(path);
   }
   return results;
@@ -17507,6 +17507,22 @@ function generateFeedback(query, matchCount) {
   }
   return parts.join(" | ");
 }
+function fuzzyWordMatch(term, word) {
+  if (!/^[a-z0-9]{4,}$/.test(term))
+    return false;
+  const max = term.length >= 7 ? 2 : 1;
+  if (Math.abs(term.length - word.length) > max)
+    return false;
+  let previous = Array.from({ length: word.length + 1 }, (_, index) => index);
+  for (let i = 1;i <= term.length; i++) {
+    const current = [i];
+    for (let j = 1;j <= word.length; j++) {
+      current[j] = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + (term[i - 1] === word[j - 1] ? 0 : 1));
+    }
+    previous = current;
+  }
+  return previous[word.length] <= max;
+}
 function createSkillSearcher(registry2) {
   function resolveQuery(queryString) {
     const query = parseQuery(queryString);
@@ -17528,6 +17544,13 @@ function createSkillSearcher(registry2) {
       const haystack = `${skill.toolName} ${skill.name} ${skill.description}`.toLowerCase();
       return query.include.every((term) => haystack.includes(term));
     });
+    const wordsToFind = query.include.flatMap((term) => term.split(/[-_]/));
+    if (results.length === 0 && wordsToFind.some((term) => /^[a-z0-9]{4,}$/.test(term)) && wordsToFind.every((term) => /^[a-z0-9]+$/.test(term))) {
+      results = skills.filter((skill) => {
+        const words = `${skill.toolName} ${skill.name} ${skill.description}`.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+        return wordsToFind.every((term) => words.some((word) => word.includes(term) || fuzzyWordMatch(term, word)));
+      });
+    }
     output.matches = results;
     output.totalMatches = results.length;
     output.feedback = generateFeedback(query, results.length);
@@ -17642,29 +17665,33 @@ async function createSkillRegistry(config2, logger) {
     rejected: 0,
     errors: []
   };
-  const initialise = async () => {
+  const resetDebug = () => {
+    debug.discovered = 0;
+    debug.parsed = 0;
+    debug.rejected = 0;
+    debug.errors = [];
+  };
+  const scanAndRegister = async () => {
+    resetDebug();
     controller.ready.setStatus("loading");
-    try {
-      const paths = [];
-      const existingBasePaths = config2.basePaths.filter(doesPathExist);
-      if (existingBasePaths.length === 0) {
-        logger.warn("[OpencodeSkillful] No valid base paths found for skill discovery:", config2.basePaths);
-        const typoCandidates = config2.basePaths.flatMap((basePath) => {
-          const suggestedPath = suggestSkillsDirectoryPath(basePath);
-          if (!suggestedPath) {
-            return [];
-          }
-          if (doesPathExist(suggestedPath)) {
-            return [`${basePath} -> ${suggestedPath}`];
-          }
+    const paths = [];
+    const existingBasePaths = config2.basePaths.filter(doesPathExist);
+    if (existingBasePaths.length === 0) {
+      logger.warn("[OpencodeSkillful] No valid base paths found for skill discovery:", config2.basePaths);
+      const typoCandidates = config2.basePaths.flatMap((basePath) => {
+        const suggestedPath = suggestSkillsDirectoryPath(basePath);
+        if (!suggestedPath) {
           return [];
-        });
-        if (typoCandidates.length > 0) {
-          logger.warn('[OpencodeSkillful] Detected possible "skill" vs "skills" typo in basePaths:', typoCandidates);
         }
-        controller.ready.setStatus("ready");
-        return;
+        if (doesPathExist(suggestedPath)) {
+          return [`${basePath} -> ${suggestedPath}`];
+        }
+        return [];
+      });
+      if (typoCandidates.length > 0) {
+        logger.warn('[OpencodeSkillful] Detected possible "skill" vs "skills" typo in basePaths:', typoCandidates);
       }
+    } else {
       logger.debug("[SkillRegistryController] Discovering skills in base paths:", existingBasePaths);
       for (const basePath of existingBasePaths) {
         const found = await findSkillPaths(basePath);
@@ -17673,21 +17700,52 @@ async function createSkillRegistry(config2, logger) {
       logger.debug("[SkillRegistryController] skills.discovered", paths.length);
       debug.discovered = paths.length;
       if (paths.length === 0) {
-        controller.ready.setStatus("ready");
         logger.debug("[SkillRegistryController] No skills found");
-        return;
+      } else {
+        const results = await register(...paths);
+        logger.debug("[SkillRegistryController] skills.initialise results", results);
+        debug.parsed = results.parsed;
+        debug.rejected = results.rejected;
+        debug.errors = results.errors;
       }
-      const results = await register(...paths);
-      logger.debug("[SkillRegistryController] skills.initialise results", results);
-      debug.parsed = results.parsed;
-      debug.rejected = results.rejected;
-      debug.errors = results.errors;
-      controller.ready.setStatus("ready");
+    }
+    controller.ready.setStatus("ready");
+    return {
+      discovered: debug.discovered,
+      registered: debug.parsed,
+      rejected: debug.rejected,
+      total: controller.skills.length,
+      errors: debug.errors
+    };
+  };
+  const initialise = async () => {
+    try {
+      await scanAndRegister();
     } catch (error45) {
       const errorMessage = error45 instanceof Error ? error45.message : String(error45);
       logger.error("[SkillRegistryController] Initialization failed:", errorMessage);
       controller.ready.setStatus("error");
     }
+  };
+  let reloadInFlight = null;
+  const reload = () => {
+    if (reloadInFlight) {
+      return reloadInFlight;
+    }
+    reloadInFlight = (async () => {
+      controller.clear();
+      try {
+        return await scanAndRegister();
+      } catch (error45) {
+        const errorMessage = error45 instanceof Error ? error45.message : String(error45);
+        logger.error("[SkillRegistryController] Reload failed:", errorMessage);
+        controller.ready.setStatus("error");
+        throw error45;
+      }
+    })().finally(() => {
+      reloadInFlight = null;
+    });
+    return reloadInFlight;
   };
   const matchBasePath = (absolutePath) => {
     for (const basePath of config2.basePaths) {
@@ -17749,6 +17807,7 @@ async function createSkillRegistry(config2, logger) {
     config: config2,
     controller,
     initialise,
+    reload,
     register,
     isSkillPath,
     getToolnameFromSkillPath,
@@ -17802,6 +17861,20 @@ function createSkillResourceMap(skillPath, filePaths) {
     });
   }
   return output;
+}
+
+// src/services/SkillCandidates.ts
+function createSkillCandidateSnapshot(provider) {
+  return async () => {
+    await provider.controller.ready.whenReady();
+    return {
+      skills: provider.controller.skills.map((skill) => ({
+        id: skill.toolName,
+        name: skill.name,
+        description: skill.description
+      }))
+    };
+  };
 }
 
 // src/tools/SkillFinder.ts
@@ -17923,6 +17996,7 @@ var createApi = async (config2) => {
     registry: registry2,
     logger,
     config: config2,
+    getSkillCandidates: createSkillCandidateSnapshot(registry2),
     findSkills: createSkillFinder(registry2),
     readResource: createSkillResourceReader(registry2),
     loadSkill: createSkillLoader(registry2)
@@ -23089,7 +23163,7 @@ var options2 = {
   }
 };
 async function getPluginConfig(ctx) {
-  const resolvedConfig = await loadConfig5(options2);
+  const resolvedConfig = await loadConfig5({ ...options2, cwd: ctx.directory });
   const configuredBasePaths = [
     ...getGlobalSkillBasePaths(),
     ...resolvedConfig.basePaths,
@@ -23619,7 +23693,9 @@ var SkillsPlugin = async (ctx) => {
           });
         }
       })
-    }
+    },
+    getSkillCandidates: api2.getSkillCandidates,
+    reloadSkills: () => api2.registry.reload()
   };
 };
 export {

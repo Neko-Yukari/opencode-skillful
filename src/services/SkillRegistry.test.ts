@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PluginLogger } from '../types';
+import { createMockSkill } from '../mocks';
 import {
   createSkillRegistry,
   stripTrailingPathSeparators,
@@ -76,5 +77,42 @@ describe('duplicate skill registration', () => {
     expect(warnings).toHaveLength(1);
     expect(String(warnings[0]?.[0])).toContain(firstPath);
     expect(String(warnings[0]?.[0])).toContain(secondPath);
+  });
+});
+
+describe('reload compatibility', () => {
+  it('coalesces concurrent reloads and clears stale skills and discovery statistics', async () => {
+    const logger: PluginLogger = {
+      debug: () => {},
+      error: () => {},
+      log: () => {},
+      warn: () => {},
+    };
+    const registry = await createSkillRegistry(
+      { basePaths: [], debug: false, promptRenderer: 'xml', modelRenderers: {} },
+      logger
+    );
+    registry.controller.set('stale', createMockSkill({ toolName: 'stale' }));
+    const debug = registry.debug;
+    if (!debug) throw new Error('Expected registry discovery statistics');
+    Object.assign(debug, {
+      discovered: 9,
+      parsed: 7,
+      rejected: 2,
+      errors: ['stale error'],
+    });
+    const first = registry.reload();
+    const second = registry.reload();
+    expect(first).toBe(second);
+    expect(await first).toEqual({
+      discovered: 0,
+      registered: 0,
+      rejected: 0,
+      total: 0,
+      errors: [],
+    });
+    expect(registry.controller.skills).toEqual([]);
+    expect(registry.debug).toEqual({ discovered: 0, parsed: 0, rejected: 0, errors: [] });
+    await registry.controller.ready.whenReady();
   });
 });
