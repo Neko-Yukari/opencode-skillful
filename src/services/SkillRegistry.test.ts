@@ -80,6 +80,45 @@ describe('duplicate skill registration', () => {
   });
 });
 
+describe('compatibility frontmatter', () => {
+  const silentLogger: PluginLogger = {
+    debug: () => {},
+    error: () => {},
+    log: () => {},
+    warn: () => {},
+  };
+  const createTestRegistry = () =>
+    createSkillRegistry(
+      { basePaths: ['/skills'], debug: false, promptRenderer: 'xml', modelRenderers: {} },
+      silentLogger
+    );
+
+  it('folds the string form into metadata so the renderer emits it', async () => {
+    const registry = await createTestRegistry();
+    await registry.register('/skills/compat-string/SKILL.md');
+
+    expect(registry.controller.get('compat_string')?.metadata).toEqual({
+      compatibility: 'Requires Unity Editor 2022.3+ with the UnitySkills package',
+    });
+  });
+
+  it('joins the list form into a single metadata string', async () => {
+    const registry = await createTestRegistry();
+    await registry.register('/skills/compat-list/SKILL.md');
+
+    expect(registry.controller.get('compat_list')?.metadata).toEqual({
+      compatibility: 'bash, read, write',
+    });
+  });
+
+  it('leaves metadata untouched when compatibility is absent', async () => {
+    const registry = await createTestRegistry();
+    await registry.register('/skills/test-skill/SKILL.md');
+
+    expect(registry.controller.get('test_skill')?.metadata).toBeUndefined();
+  });
+});
+
 describe('reload compatibility', () => {
   it('coalesces concurrent reloads and clears stale skills and discovery statistics', async () => {
     const logger: PluginLogger = {
