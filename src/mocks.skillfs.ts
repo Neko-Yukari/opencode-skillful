@@ -28,6 +28,23 @@ description: Second duplicate skill used to verify replacement behavior.
 ---
 # Second Duplicate
 `,
+      './compat-string/SKILL.md': `---
+name: compat-string
+description: Skill used to verify the string form of the compatibility field.
+compatibility: Requires Unity Editor 2022.3+ with the UnitySkills package
+---
+# Compat String
+`,
+      './compat-list/SKILL.md': `---
+name: compat-list
+description: Skill used to verify the list form of the compatibility field.
+compatibility:
+  - bash
+  - read
+  - write
+---
+# Compat List
+`,
     },
     '/skills'
   );

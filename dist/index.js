@@ -17621,6 +17621,7 @@ var SkillFrontmatterSchema = tool.schema.object({
   name: tool.schema.string().optional(),
   description: tool.schema.string().min(20, "Description must be at least 20 characters for discoverability"),
   license: tool.schema.string().optional(),
+  compatibility: tool.schema.union([tool.schema.string(), tool.schema.array(tool.schema.string())]).optional(),
   "allowed-tools": tool.schema.array(tool.schema.string()).optional(),
   metadata: tool.schema.record(tool.schema.string(), tool.schema.string()).optional()
 });
@@ -17836,6 +17837,9 @@ async function parseSkill(args) {
   const scriptPaths = listSkillFiles(skillFullPath, "scripts");
   const referencePaths = listSkillFiles(skillFullPath, "references");
   const assetPaths = listSkillFiles(skillFullPath, "assets");
+  const rawCompatibility = frontmatter.data.compatibility;
+  const compatibility = Array.isArray(rawCompatibility) ? rawCompatibility.join(", ") : rawCompatibility;
+  const metadata = compatibility ? { ...frontmatter.data.metadata, compatibility } : frontmatter.data.metadata;
   return {
     allowedTools: frontmatter.data["allowed-tools"],
     content: parsed.content.trim(),
@@ -17843,7 +17847,7 @@ async function parseSkill(args) {
     fullPath: skillFullPath,
     toolName: toolName(relativePath),
     license: frontmatter.data.license,
-    metadata: frontmatter.data.metadata,
+    metadata,
     name: shortName,
     path: args.skillPath,
     scripts: createSkillResourceMap(skillFullPath, scriptPaths),
@@ -23691,6 +23695,14 @@ var SkillsPlugin = async (ctx) => {
             resource_path: result.injection.resource_path,
             resource_mimetype: result.injection.resource_mimetype
           });
+        }
+      }),
+      skill_refresh: tool({
+        description: "Re-scan the skill directories from disk and rebuild the skill index. Use after adding, editing, renaming or deleting SKILL.md files, or when a skill that exists is not found.",
+        args: {},
+        execute: async () => {
+          const summary = await api2.registry.reload();
+          return JSON.stringify(summary);
         }
       })
     },

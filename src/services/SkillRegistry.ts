@@ -70,6 +70,9 @@ const SkillFrontmatterSchema = tool.schema.object({
     .string()
     .min(20, 'Description must be at least 20 characters for discoverability'),
   license: tool.schema.string().optional(),
+  compatibility: tool.schema
+    .union([tool.schema.string(), tool.schema.array(tool.schema.string())])
+    .optional(),
   'allowed-tools': tool.schema.array(tool.schema.string()).optional(),
   metadata: tool.schema.record(tool.schema.string(), tool.schema.string()).optional(),
 });
@@ -415,6 +418,17 @@ async function parseSkill(args: {
   const referencePaths = listSkillFiles(skillFullPath, 'references');
   const assetPaths = listSkillFiles(skillFullPath, 'assets');
 
+  // `compatibility` is an Anthropic-spec field (required tools / environment). It has no
+  // dedicated slot on Skill, and the renderer only emits `metadata`, so fold it in there
+  // instead of dropping it. Both the string form and the list form are in the wild.
+  const rawCompatibility = frontmatter.data.compatibility;
+  const compatibility = Array.isArray(rawCompatibility)
+    ? rawCompatibility.join(', ')
+    : rawCompatibility;
+  const metadata = compatibility
+    ? { ...frontmatter.data.metadata, compatibility }
+    : frontmatter.data.metadata;
+
   return {
     allowedTools: frontmatter.data['allowed-tools'],
     content: parsed.content.trim(),
@@ -422,7 +436,7 @@ async function parseSkill(args: {
     fullPath: skillFullPath,
     toolName: toolName(relativePath),
     license: frontmatter.data.license,
-    metadata: frontmatter.data.metadata,
+    metadata,
     name: shortName,
     path: args.skillPath,
     scripts: createSkillResourceMap(skillFullPath, scriptPaths),

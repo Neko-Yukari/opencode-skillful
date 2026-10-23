@@ -172,6 +172,16 @@ export const SkillsPlugin: Plugin = async (ctx) => {
           });
         },
       }),
+
+      skill_refresh: tool({
+        description:
+          'Re-scan the skill directories from disk and rebuild the skill index. Use after adding, editing, renaming or deleting SKILL.md files, or when a skill that exists is not found.',
+        args: {},
+        execute: async () => {
+          const summary = await api.registry.reload();
+          return JSON.stringify(summary);
+        },
+      }),
     },
     getSkillCandidates: api.getSkillCandidates,
     reloadSkills: () => api.registry.reload(),
